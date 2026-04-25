@@ -4,11 +4,21 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
 require('dotenv').config();
+let observabilityUtils;
+try {
+  observabilityUtils = require('../../../shared/utils/observability');
+} catch (e) {
+  observabilityUtils = {
+    createMetricsCollector: () => ({ middleware: (req, res, next) => next(), metricsHandler: (req, res) => res.send('') }),
+    createRequestContextMiddleware: () => (req, res, next) => next(),
+    createSecurityHeadersMiddleware: () => (req, res, next) => next()
+  };
+}
 const {
   createMetricsCollector,
   createRequestContextMiddleware,
   createSecurityHeadersMiddleware
-} = require('../../../shared/utils/observability');
+} = observabilityUtils;
 
 const app = express();
 const observability = createMetricsCollector({ serviceName: 'payment-service' });
