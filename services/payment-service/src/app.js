@@ -106,7 +106,31 @@ app.get('/api/payments/health', (req, res) => {
   });
 });
 
+const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_51TNRP6LcXlRTJQee7kyueHw8lmtrATfOSOKLRmX4VDzgR5muRuvqY03GBdkwNtjuRJ8jMNMcVOI2TsKV2ASQ6107000ujSxrae';
+const stripe = require('stripe')(STRIPE_KEY);
+
 // 3. API Endpoints
+app.post('/api/payments/create-intent', async (req, res) => {
+  try {
+    const { amount, currency = 'vnd', rideId } = req.body;
+    
+    if (!amount || !rideId) {
+      return res.status(400).json({ error: 'amount and rideId are required' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Number(amount),
+      currency: currency,
+      metadata: { rideId }
+    });
+
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (error) {
+    console.error('❌ Stripe Create Intent Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/payments', async (req, res) => {
   try {
     const created = await createPaymentRecord({
@@ -183,6 +207,52 @@ app.get('/api/payments/:paymentId', async (req, res) => {
     if (!payment) return res.status(404).json({ error: 'Không tìm thấy giao dịch' });
     res.json({ success: true, data: payment });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Lấy thu nhập của tài xế
+app.get('/api/payments/driver/:driverId/earnings', async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { period } = req.query; // 'day' or 'week'
+    
+    const Payment = require('./models/Payment');
+    
+    const now = new Date();
+    let startDate = new Date();
+    if (period === 'week') {
+      startDate.setDate(now.getDate() - 7);
+    } else {
+      startDate.setHours(0, 0, 0, 0); // start of today
+    }
+
+    const payments = await Payment.find({
+      driverId,
+      status: 'completed',
+      createdAt: { $gte: startDate }
+    }).sort({ createdAt: -1 });
+
+    const total = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    
+    const history = payments.map(p => ({
+      id: p.paymentId,
+      date: p.createdAt,
+      amount: p.amount,
+      pickup: 'Điểm đón', // Trong thực tế lấy từ Ride
+      dropoff: 'Điểm đến' // Trong thực tế lấy từ Ride
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        total,
+        rides: payments.length,
+        history
+      }
+    });
+  } catch (err) {
+    console.error('❌ Earnings error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 4. Xử lý Route không tồn tại (Middleware này phải nằm dưới cùng của các route)
