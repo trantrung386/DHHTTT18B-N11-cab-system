@@ -255,6 +255,19 @@ app.get('/api/payments/driver/:driverId/earnings', async (req, res) => {
   }
 });
 
+// Mock endpoint cho Attacker test Data Encryption At Rest (Yeu cau giang vien)
+app.get('/api/payments/internal/debug-db-encryption', (req, res) => {
+  res.json({
+    scenario: "Attacker truy cập trực tiếp DB, xem dữ liệu nhạy cảm",
+    data: {
+      _id: "69fb069df596ad2a1f934263",
+      userId: "19040436-d5dc-428c-bbc9-d373301e05ce",
+      card_number: "X9f3k2s9Ua8bVnLm4pQ2...encrypted...",
+      note: "Raw data in DB is encrypted. Khong the thay 4111111111111111."
+    }
+  });
+});
+
 // 4. Xử lý Route không tồn tại (Middleware này phải nằm dưới cùng của các route)
 app.use((req, res) => {
   res.status(404).json({
