@@ -48,7 +48,7 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
 
 const TripInProgressScreen = () => {
   const navigate = useNavigate();
-  const { activeRide, rideStatus, currentLocation, completeRide, resetRide, setCurrentLocation } = useDriverStore();
+  const { activeRide, rideStatus, currentLocation, completeRide, resetRide, setCurrentLocation, rideRoutePath } = useDriverStore();
   const { socket } = useSocket();
   const { user } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -72,7 +72,21 @@ const TripInProgressScreen = () => {
     setCurrentLocation(activeRide.pickup.lat, activeRide.pickup.lng);
     console.log('[TripInProgress] Snapped driver to pickup:', activeRide.pickup.lat, activeRide.pickup.lng);
 
-    // Clear stale route and fetch new one
+    // PRIORITY 1: Use route from store (already fetched by IncomingRideScreen)
+    if (rideRoutePath && rideRoutePath.length > 2) {
+      console.log('[TripInProgress] Using cached route from store:', rideRoutePath.length, 'points');
+      setRoutePath(rideRoutePath);
+      // Also populate the routeService cache for consistency
+      routeService.setCachedRoute(
+        { lat: activeRide.pickup.lat, lng: activeRide.pickup.lng },
+        { lat: activeRide.dropoff.lat, lng: activeRide.dropoff.lng },
+        rideRoutePath
+      );
+      return;
+    }
+
+    // PRIORITY 2: Fetch from OSRM (will use routeService cache if available)
+    console.log('[TripInProgress] No cached route in store, fetching from OSRM...');
     setRoutePath([]);
     routeService.getRoutePath(
       { lat: activeRide.pickup.lat, lng: activeRide.pickup.lng },
@@ -80,8 +94,10 @@ const TripInProgressScreen = () => {
     ).then(path => {
       console.log('[TripInProgress] Route loaded:', path.length, 'points. First:', path[0], 'Last:', path[path.length - 1]);
       setRoutePath(path);
+    }).catch(err => {
+      console.error('[TripInProgress] Route fetch failed:', err);
     });
-  }, [rideStatus, activeRide, navigate, setCurrentLocation]);
+  }, [rideStatus, activeRide, navigate, setCurrentLocation, rideRoutePath]);
 
   // ── Step 2: Simulate vehicle movement along route ──
   useEffect(() => {

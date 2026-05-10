@@ -1,0 +1,457 @@
+# 🚕 Hướng Dẫn Toàn Diện: CAB Booking System & Postman Testing
+
+## 1. Tổng Quan Kiến Trúc Hệ Thống
+
+Hệ thống CAB Booking là một **microservices architecture** bao gồm 13 backend services, 1 API Gateway, 1 Realtime Socket Server, và 3 frontend apps.
+
+```mermaid
+graph TB
+    subgraph "Frontend Apps"
+        CA["Customer App :5173"]
+        DA["Driver App :5174"]
+        AD["Admin Dashboard :5175"]
+    end
+
+    subgraph "Gateway Layer"
+        GW["API Gateway :3000"]
+        RS["Realtime Socket :3013"]
+    end
+
+    subgraph "Core Services"
+        AUTH["Auth Service :3004"]
+        BOOK["Booking Service :3003"]
+        RIDE["Ride Service :3009"]
+        DRIVER["Driver Service :3007"]
+        PAY["Payment Service :3002"]
+    end
+
+    subgraph "AI / ML Services"
+        ETA["ETA Service :3011"]
+        PRICE["Pricing Service :3001"]
+        MATCH["Matching Service :3014"]
+        FRAUD["Fraud Service :3012"]
+    end
+
+    subgraph "Support Services"
+        NOTIF["Notification Service :3008"]
+        USER["User Service :3005"]
+        REVIEW["Review Service :3006"]
+        STORE["Storage Service :3015"]
+    end
+
+    subgraph "Infrastructure"
+        PG["PostgreSQL :5432"]
+        MONGO["MongoDB :27017"]
+        REDIS["Redis :6379"]
+        RMQ["RabbitMQ :5672"]
+        MINIO["MinIO :9000"]
+    end
+
+    CA & DA & AD --> GW
+    CA & DA --> RS
+    GW --> AUTH & BOOK & RIDE & DRIVER & PAY
+    GW --> ETA & PRICE & MATCH & FRAUD
+    GW --> NOTIF & USER & REVIEW & STORE
+    AUTH & BOOK & DRIVER --> PG
+    USER & NOTIF & REVIEW & BOOK --> MONGO
+    AUTH & BOOK --> REDIS
+    BOOK & PAY & NOTIF --> RMQ
+    STORE --> MINIO
+    MATCH --> DRIVER & PRICE
+```
+
+---
+
+## 2. Vai Trò Từng Service
+
+| Service | Port | Chức năng chính | Database |
+|---------|------|----------------|----------|
+| **API Gateway** | 3000 | Điểm vào duy nhất, route request, JWT auth | - |
+| **Auth Service** | 3004 | Đăng ký, đăng nhập, JWT token | PostgreSQL + Redis |
+| **Booking Service** | 3003 | Tạo/quản lý booking, gọi ETA+Pricing+Payment | PostgreSQL + MongoDB |
+| **Driver Service** | 3007 | Quản lý driver, cập nhật status/vị trí | PostgreSQL + MongoDB |
+| **Ride Service** | 3009 | Quản lý ride lifecycle (pickup → dropoff) | PostgreSQL + MongoDB |
+| **Payment Service** | 3002 | Xử lý thanh toán, Stripe integration | PostgreSQL |
+| **ETA Service** | 3011 | AI dự đoán thời gian đến (ML model) | - |
+| **Pricing Service** | 3001 | AI tính giá, surge pricing | PostgreSQL |
+| **Matching Service** | 3014 | AI Agent ghép driver-customer | - |
+| **Fraud Service** | 3012 | AI phát hiện gian lận | - |
+| **Notification Service** | 3008 | Gửi thông báo push/email/SMS | MongoDB |
+| **User Service** | 3005 | Quản lý profile user | MongoDB |
+| **Review Service** | 3006 | Đánh giá chuyến đi | MongoDB |
+| **Storage Service** | 3015 | Lưu trữ file (MinIO/S3) | MinIO |
+| **Realtime Socket** | 3013 | WebSocket cho tracking realtime | Redis |
+
+---
+
+## 3. Luồng Hoạt Động Chính (Booking Flow)
+
+```mermaid
+sequenceDiagram
+    participant C as Customer
+    participant GW as API Gateway
+    participant AUTH as Auth Service
+    participant BOOK as Booking Service
+    participant ETA as ETA Service
+    participant PRICE as Pricing Service
+    participant MATCH as Matching Service
+    participant DRIVER as Driver Service
+    participant NOTIF as Notification Service
+    participant RMQ as RabbitMQ
+
+    C->>GW: POST /auth/register (đăng ký)
+    GW->>AUTH: Forward
+    AUTH-->>C: 201 Created + user object
+
+    C->>GW: POST /auth/login
+    GW->>AUTH: Forward
+    AUTH-->>C: 200 OK + JWT token
+
+    C->>GW: POST /api/bookings (tạo booking)
+    GW->>BOOK: Forward (JWT verified)
+    BOOK->>ETA: GET /estimate (tính ETA)
+    ETA-->>BOOK: etaMinutes
+    BOOK->>PRICE: GET /estimate (tính giá)
+    PRICE-->>BOOK: estimatedFare + surge
+    BOOK->>MATCH: POST /recommend (tìm driver)
+    MATCH->>DRIVER: GET /nearby (driver gần nhất)
+    DRIVER-->>MATCH: danh sách driver
+    MATCH-->>BOOK: recommended drivers
+    BOOK->>RMQ: Publish "ride_requested" event
+    BOOK-->>C: 200/201 + booking data
+
+    RMQ->>NOTIF: Consume event
+    NOTIF-->>C: Push notification
+```
+
+---
+
+## 4. Cách Khởi Động Hệ Thống
+
+### Yêu cầu
+- **Docker Desktop** đã cài và đang chạy
+- **RAM tối thiểu**: 8GB (khuyến nghị 16GB)
+
+### Lệnh khởi động
+
+```bash
+# Từ thư mục gốc của project
+docker-compose up -d --build
+```
+
+> [!IMPORTANT]
+> Chờ khoảng **2-5 phút** để tất cả services healthy. Kiểm tra bằng `docker-compose ps`.
+
+### Kiểm tra services đang chạy
+
+```bash
+docker-compose ps
+# Hoặc test gateway health:
+curl http://localhost:3000/health
+```
+
+---
+
+## 5. Hướng Dẫn Import & Test Postman Collection
+
+### Bước 1: Import Collection vào Postman
+
+1. Mở **Postman Desktop App**
+2. Click **Import** (góc trên bên trái)
+3. Chọn file: `CAB-Booking-System-12-Levels.postman_collection.json`
+4. Click **Import**
+
+### Bước 2: Kiểm tra Collection Variables
+
+Collection đã có sẵn các biến (tự động được set khi chạy test):
+
+| Variable | Giá trị mặc định | Mô tả |
+|----------|-------------------|-------|
+| `gateway_url` | `http://localhost:3000` | URL của API Gateway |
+| `fraud_service_url` | `http://localhost:3012` | URL trực tiếp Fraud Service |
+| `token` | _(auto-set)_ | JWT token customer (set sau khi login) |
+| `userId` | _(auto-set)_ | ID customer (set sau khi login) |
+| `driverToken` | _(auto-set)_ | JWT token driver |
+| `driverId` | _(auto-set)_ | ID driver |
+| `bookingId` | _(auto-set)_ | ID booking đã tạo |
+
+### Bước 3: Chạy Test Theo Thứ Tự
+
+> [!CAUTION]
+> **BẮT BUỘC phải chạy tuần tự** vì các test sau phụ thuộc vào biến được set ở test trước!
+
+---
+
+## 6. Chi Tiết 12 Levels
+
+### 📋 Level 1: Basic API & Flow (12 tests)
+**Mục đích**: Kiểm tra các API cơ bản hoạt động đúng.
+
+**Thứ tự chạy bắt buộc:**
+
+| # | Test | Method | Endpoint | Ghi chú |
+|---|------|--------|----------|---------|
+| 1 | Đăng ký user | POST | `/auth/register` | Tạo customer `testlevel1@test.com` |
+| 2 | Đăng nhập → JWT | POST | `/auth/login` | **Auto-set `token` + `userId`** |
+| 3 | Tạo booking | POST | `/api/bookings` | **Auto-set `bookingId`** |
+| 4a | Lấy booking theo ID | GET | `/api/bookings/{{bookingId}}` | Dùng bookingId vừa tạo |
+| 4b | Danh sách booking | GET | `/api/bookings/customer/{{userId}}` | |
+| 5a | Đăng ký Driver | POST | `/auth/register` | Tạo driver `driver_level1@test.com` |
+| 5b | Đăng nhập Driver | POST | `/auth/login` | **Auto-set `driverToken` + `driverId`** |
+| 5c | Driver lên online | PUT | `/api/drivers/status/{{driverId}}` | |
+| 6 | Booking → REQUESTED | POST | `/api/bookings` | Verify status=REQUESTED |
+| 7 | ETA estimate | POST | `/api/eta/estimate` | ETA > 0 phút |
+| 8 | Pricing estimate | POST | `/api/pricing/estimate` | Price > 0, Surge >= 1 |
+| 9 | Send notification | POST | `/api/notifications/send` | |
+| 10 | Logout | POST | `/auth/logout` | Xóa token |
+
+> [!TIP]
+> **Cách chạy nhanh Level 1**: Click chuột phải vào folder "Level 1" → **Run folder** → Postman sẽ tự chạy tuần tự tất cả requests.
+
+---
+
+### 📋 Level 2: Validation & Edge Cases (10 tests)
+**Mục đích**: Kiểm tra hệ thống xử lý input sai/bất thường.
+
+> [!WARNING]
+> Level 2 cần `token` từ Level 1. Nếu Level 1 đã logout, bạn phải **chạy lại test đăng nhập** trước!
+
+**Các test chính:**
+- Thiếu pickup → 400
+- Sai format lat/lng → 422
+- Payment method sai → 400
+- ETA với distance=0 → không crash
+- Token expired → 401
+- Duplicate request (idempotency)
+- Payload quá lớn → 413
+
+---
+
+### 📋 Level 3: Integration Test (10 tests)
+**Mục đích**: Kiểm tra các service giao tiếp với nhau đúng.
+
+**Các test chính:**
+- Booking → ETA service (etaMinutes > 0)
+- Booking → Pricing service (estimatedFare > 0)
+- AI Agent chọn driver
+- Booking → Payment → Notification flow
+- Event `ride_requested` được publish
+- Booking confirm → status ACCEPTED
+- MCP context fetch
+- Gateway health check
+- Pricing timeout → fallback
+
+---
+
+### 📋 Level 4: Transaction (10 tests)
+**Mục đích**: Kiểm tra tính ACID, Saga pattern, rollback.
+
+**Các test chính:**
+- Transaction tạo booking thành công (atomic + consistent)
+- Rollback khi lỗi giữa chừng
+- Payment thất bại → rollback booking (CANCELLED)
+- Idempotent transaction
+- Concurrent booking (race condition)
+- Saga success/failure + compensation
+
+---
+
+### 📋 Level 5: AI Service Validation (10 tests)
+**Mục đích**: Kiểm tra các AI/ML model hoạt động đúng.
+
+- ETA output trong range hợp lý (0-60 min)
+- Pricing surge > 1 khi demand cao
+- Fraud detection flagged khi risk cao
+- Model version tracking
+- AI latency < 200ms (SLA)
+- Drift detection
+- Model fallback khi lỗi
+
+---
+
+### 📋 Level 6: AI Agent Logic (10 tests)
+**Mục đích**: Kiểm tra Matching Agent chọn driver thông minh.
+
+- Chọn driver gần nhất (distance priority)
+- Chọn driver rating cao (rating priority)
+- Cân bằng ETA vs Price trade-off
+- MCP context integration
+- Xử lý missing data → reject an toàn
+- Không chọn driver OFFLINE
+- Agent log (explainability)
+- Fallback rule-based khi AI fail
+
+---
+
+### 📋 Level 7: Performance & Load (10 tests)
+**Mục đích**: Kiểm tra hiệu năng dưới tải.
+
+- Stability check (1000 req/sec concept)
+- ETA latency SLA
+- Pricing under spike
+- DB connection pool
+- Redis cache hit rate
+- Rate limit (429)
+- P95 latency < 300ms
+
+---
+
+### 📋 Level 8: Failure & Resilience (10 tests)
+**Mục đích**: Kiểm tra hệ thống phục hồi khi có lỗi.
+
+- Driver service down → fallback
+- Pricing timeout → retry/fallback
+- Kafka down → buffer event
+- DB failover
+- Circuit breaker
+- Partial system failure
+- Graceful degradation
+
+---
+
+### 📋 Level 9: Security Test (10 tests)
+**Mục đích**: Kiểm tra bảo mật cơ bản.
+
+- SQL/NoSQL injection
+- XSS input test
+- JWT tampering
+- Unauthorized access (customer → admin)
+- Rate limit attack
+- Replay attack
+- Data encryption
+- RBAC enforcement
+
+---
+
+### 📋 Level 10: Zero Trust Security (10 tests)
+**Mục đích**: Kiểm tra bảo mật nâng cao.
+
+- Missing JWT → 401
+- Tampered signature → 401
+- Expired token → 401
+- mTLS enforcement
+- RBAC (user → admin API)
+- Least privilege
+- Bypass gateway attack
+- HTTPS only
+
+---
+
+### 📋 Level 11: Deployment (10 tests)
+**Mục đích**: Kiểm tra deployment hoạt động đúng.
+
+- Health check endpoints
+- Environment variables
+- DB connectivity
+- Message broker connectivity
+- Rolling update (zero downtime)
+- Prometheus metrics
+- Service mesh routing
+
+---
+
+### 📋 Level 12: Monitoring (10 tests)
+**Mục đích**: Kiểm tra observability.
+
+- Trace ID injection
+- Structured logging
+- Prometheus /metrics
+- Distributed tracing
+- SLO alert (error rate)
+- AI inference monitoring
+- Kafka monitoring
+
+---
+
+## 7. Quy Trình Test Thực Tế (Step-by-Step)
+
+### ⚡ Cách test nhanh nhất
+
+```
+1. docker-compose up -d --build         ← Khởi động hệ thống
+2. Chờ 3-5 phút cho services healthy
+3. Import file JSON vào Postman
+4. Chạy Level 1 trước (Run folder)
+5. Nếu Level 1 pass → chạy tiếp Level 2, 3...
+```
+
+### 🔄 Khi test lại từ đầu (reset data)
+
+```bash
+# Xóa tất cả containers + volumes (reset database)
+docker-compose down -v
+
+# Khởi động lại
+docker-compose up -d --build
+```
+
+### ❌ Xử lý lỗi thường gặp
+
+| Lỗi | Nguyên nhân | Cách fix |
+|-----|-------------|----------|
+| `401 Unauthorized` | Token chưa được set hoặc expired | Chạy lại test Login |
+| `ECONNREFUSED` | Service chưa khởi động xong | Chờ thêm, check `docker-compose ps` |
+| `409 Conflict` (register) | Email đã tồn tại | Bình thường nếu chạy lại, test accept 409 |
+| `500 Internal Server Error` | Service lỗi | Check log: `docker-compose logs <service-name>` |
+| `502 Bad Gateway` | Service downstream chưa sẵn sàng | Chờ hoặc restart: `docker-compose restart <service>` |
+
+---
+
+## 8. Dependency Chain (Quan Trọng!)
+
+```mermaid
+graph LR
+    A["Test 1: Register"] --> B["Test 2: Login"]
+    B -->|"auto-set token + userId"| C["Test 3+: Booking, ETA, etc."]
+    D["Test 5a: Register Driver"] --> E["Test 5b: Login Driver"]
+    E -->|"auto-set driverToken + driverId"| F["Test 5c: Driver Online"]
+    C -->|"auto-set bookingId"| G["Test 4: Get Booking"]
+```
+
+> [!IMPORTANT]
+> **Nếu bất kỳ test nào trong chain đầu tiên FAIL**, tất cả test phía sau sẽ fail theo vì thiếu biến.
+> 
+> Giải pháp: Fix test bị lỗi đầu tiên → chạy lại từ đầu folder.
+
+---
+
+## 9. Chạy Tự Động Bằng Newman (CLI)
+
+Nếu muốn chạy không cần mở Postman GUI:
+
+```bash
+# Cài Newman
+npm install -g newman
+
+# Chạy toàn bộ collection
+newman run "CAB-Booking-System-12-Levels.postman_collection.json"
+
+# Chạy với report HTML
+newman run "CAB-Booking-System-12-Levels.postman_collection.json" -r htmlextra
+
+# Chạy chỉ 1 folder (ví dụ Level 1)
+newman run "CAB-Booking-System-12-Levels.postman_collection.json" --folder "Level 1: Basic API & Flow"
+```
+
+---
+
+## 10. Tổng Kết
+
+| Level | Chủ đề | Số test | Độ khó |
+|-------|--------|---------|--------|
+| 1 | Basic API & Flow | 12 | ⭐ |
+| 2 | Validation & Edge Cases | 10 | ⭐⭐ |
+| 3 | Integration Test | 10 | ⭐⭐ |
+| 4 | Transaction (ACID/Saga) | 10 | ⭐⭐⭐ |
+| 5 | AI Service Validation | 10 | ⭐⭐⭐ |
+| 6 | AI Agent Logic | 10 | ⭐⭐⭐ |
+| 7 | Performance & Load | 10 | ⭐⭐⭐⭐ |
+| 8 | Failure & Resilience | 10 | ⭐⭐⭐⭐ |
+| 9 | Security Test | 10 | ⭐⭐⭐ |
+| 10 | Zero Trust Security | 10 | ⭐⭐⭐⭐ |
+| 11 | Deployment | 10 | ⭐⭐⭐ |
+| 12 | Monitoring | 10 | ⭐⭐⭐ |
+| **Tổng** | | **~122** | |
+
+> [!TIP]
+> **Chiến lược test hiệu quả nhất**: Chạy Level 1 → 2 → 3 trước. Đây là 3 level quan trọng nhất và dễ pass nhất. Các level sau (4-12) đòi hỏi hệ thống phải implement đầy đủ các feature nâng cao.

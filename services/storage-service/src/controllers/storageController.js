@@ -61,15 +61,14 @@ class StorageController {
   };
 
   /**
-   * GET /download/*fileKey
+   * GET /download?key=category/userId/file.jpg
    * Returns the raw file stream with correct Content-Type.
    */
   download = async (req, res) => {
     try {
-      // fileKey can contain slashes, captured via wildcard
-      const fileKey = req.params[0] || req.params.fileKey;
+      const fileKey = req.query.key;
       if (!fileKey) {
-        return res.status(400).json({ error: 'fileKey is required' });
+        return res.status(400).json({ error: 'Query param "key" is required' });
       }
 
       const { stream, stat } = await this.storageService.getFileStream(fileKey);
@@ -89,14 +88,14 @@ class StorageController {
   };
 
   /**
-   * GET /presigned/*fileKey
+   * GET /presigned?key=category/userId/file.jpg
    * Returns a temporary presigned URL for the file.
    */
   presignedUrl = async (req, res) => {
     try {
-      const fileKey = req.params[0] || req.params.fileKey;
+      const fileKey = req.query.key;
       if (!fileKey) {
-        return res.status(400).json({ error: 'fileKey is required' });
+        return res.status(400).json({ error: 'Query param "key" is required' });
       }
 
       const expiry = parseInt(req.query.expiry || '3600', 10);
@@ -113,13 +112,13 @@ class StorageController {
   };
 
   /**
-   * DELETE /files/*fileKey
+   * DELETE /delete?key=category/userId/file.jpg
    */
   deleteFile = async (req, res) => {
     try {
-      const fileKey = req.params[0] || req.params.fileKey;
+      const fileKey = req.query.key;
       if (!fileKey) {
-        return res.status(400).json({ error: 'fileKey is required' });
+        return res.status(400).json({ error: 'Query param "key" is required' });
       }
 
       const result = await this.storageService.deleteFile(fileKey);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -48,40 +48,44 @@ const HomeScreen = () => {
   }, []);
 
   // Handle Socket & GPS loop when Online
+  // IMPORTANT: Only update GPS when rideStatus is IDLE.
+  // During active rides (INCOMING, PICKING_UP, IN_PROGRESS), the ride screens
+  // handle driver position via simulation, so browser GPS must NOT interfere.
   useEffect(() => {
     let locationInterval: ReturnType<typeof setInterval>;
 
     if (isOnline) {
       if (!isConnected) connect();
 
-      // Emit location every 5 seconds
-      locationInterval = setInterval(() => {
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              const { latitude, longitude } = position.coords;
-              setMapCenter([latitude, longitude]);
-              setCurrentLocation(latitude, longitude);
-              
-              // Emit via Socket
-              if (socket) {
-                socket.emit('driver.location.update', {
-                  driverId: user?.id,
-                  lat: latitude,
-                  lng: longitude
-                });
-              }
-              // Also update via API fallback
-              if (user?.id) {
-                driverApiService.updateLocation(user.id, latitude, longitude);
-              }
-            },
-            () => console.warn('GPS Error'),
-            { enableHighAccuracy: true, timeout: 5000 }
-          );
-        }
-      }, 5000);
-
+      // Only emit GPS location when not in an active ride
+      if (rideStatus === 'IDLE') {
+        locationInterval = setInterval(() => {
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                const { latitude, longitude } = position.coords;
+                setMapCenter([latitude, longitude]);
+                setCurrentLocation(latitude, longitude);
+                
+                // Emit via Socket
+                if (socket) {
+                  socket.emit('driver.location.update', {
+                    driverId: user?.id,
+                    lat: latitude,
+                    lng: longitude
+                  });
+                }
+                // Also update via API fallback
+                if (user?.id) {
+                  driverApiService.updateLocation(user.id, latitude, longitude);
+                }
+              },
+              () => console.warn('GPS Error'),
+              { enableHighAccuracy: true, timeout: 5000 }
+            );
+          }
+        }, 5000);
+      }
     } else {
       // Disconnect socket when offline to save battery/bandwidth
       disconnect();
@@ -90,17 +94,31 @@ const HomeScreen = () => {
     return () => {
       clearInterval(locationInterval);
     };
-  }, [isOnline, isConnected, socket, connect, disconnect, user?.id, setCurrentLocation]);
+  }, [isOnline, isConnected, socket, connect, disconnect, user?.id, setCurrentLocation, rideStatus]);
 
   // Listen for Incoming Ride & Fetch pending rides when online
+  // Track bookings that have been taken/declined so we never re-show them
+  const dismissedBookings = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (socket && isOnline) {
+      // Helper: check if this booking was already dismissed
+      const isDismissed = (id: string) => dismissedBookings.current.has(id);
+      const markDismissed = (id: string) => { if (id) dismissedBookings.current.add(id); };
+
       // 1. Fetch existing pending rides
       const fetchPending = async () => {
         try {
           const rides = await driverApiService.getPendingRides();
           if (rides && rides.length > 0 && rideStatus === 'IDLE') {
-            const data = rides[0];
+            // Filter out any rides that were already taken/declined
+            const available = rides.filter((r: any) => {
+              const id = r.bookingId || r._id;
+              return !isDismissed(id);
+            });
+            if (available.length === 0) return;
+
+            const data = available[0];
             setIncomingRide({
               id: data.bookingId || data._id,
               customerName: data.customerName || 'Khách hàng',
@@ -134,8 +152,14 @@ const HomeScreen = () => {
       const handleIncomingRide = (data: any) => {
         if (rideStatus !== 'IDLE') return; // Ignore if busy
         
+        const incomingId = data.bookingId || data._id;
+        if (isDismissed(incomingId)) {
+          console.log('[HomeScreen] Ignoring dismissed ride:', incomingId);
+          return;
+        }
+        
         setIncomingRide({
-          id: data.bookingId || data._id,
+          id: incomingId,
           customerName: data.customer?.name || data.customerName || 'Khách hàng',
           customerPhone: data.customer?.phone || data.customerPhone,
           pickup: data.pickupLocation,
@@ -147,10 +171,21 @@ const HomeScreen = () => {
         navigate('/driver/incoming');
       };
 
+      // 3. Listen for ride.taken — mark booking as dismissed so it's never shown again
+      const handleRideTaken = (data: any) => {
+        const takenId = data?.bookingId || data?.booking_id;
+        if (takenId) {
+          console.log('[HomeScreen] Ride taken, marking dismissed:', takenId);
+          markDismissed(takenId);
+        }
+      };
+
       socket.on('ride.incoming', handleIncomingRide);
+      socket.on('ride.taken', handleRideTaken);
 
       return () => {
         socket.off('ride.incoming', handleIncomingRide);
+        socket.off('ride.taken', handleRideTaken);
       };
     }
   }, [socket, isOnline, rideStatus, setIncomingRide, navigate]);

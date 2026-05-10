@@ -572,19 +572,67 @@ class BookingService {
         };
     }
 
-    // Xác nhận booking (khi driver chấp nhận)
+    // Xác nhận booking (khi driver chấp nhận) — ATOMIC to prevent race conditions
     async confirmBooking(bookingId, driverId, rideId, driverMeta = {}) {
         try {
             const generatedRideId = rideId || `RIDE-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             
-            const booking = await bookingRepository.updateBooking(bookingId, {
-                status: 'ACCEPTED',
-                driverId,
-                rideId: generatedRideId
-            });
+            // === ATOMIC UPDATE: Only allow acceptance if booking is still available ===
+            const Booking = require('../models/Booking');
+            const mongoose = require('mongoose');
+            
+            // Build the query to find the booking (supports both _id and bookingId)
+            let query;
+            if (mongoose.Types.ObjectId.isValid(bookingId)) {
+                query = {
+                    $or: [
+                        { _id: bookingId },
+                        { bookingId: bookingId }
+                    ]
+                };
+            } else {
+                query = { bookingId: bookingId };
+            }
+            
+            // Only allow if status is one of the "available" states
+            query.status = { $in: ['REQUESTED', 'PENDING', 'CONFIRMED'] };
+            
+            const booking = await Booking.findOneAndUpdate(
+                query,
+                {
+                    $set: {
+                        status: 'ACCEPTED',
+                        driverId,
+                        rideId: generatedRideId,
+                        updatedAt: new Date()
+                    }
+                },
+                { new: true }
+            );
 
             if (!booking) {
-                throw new Error(`Booking not found: ${bookingId}`);
+                // Check if booking exists at all to give a meaningful error
+                let existingBooking;
+                if (mongoose.Types.ObjectId.isValid(bookingId)) {
+                    existingBooking = await Booking.findOne({
+                        $or: [{ _id: bookingId }, { bookingId: bookingId }]
+                    });
+                } else {
+                    existingBooking = await Booking.findOne({ bookingId: bookingId });
+                }
+                
+                if (!existingBooking) {
+                    throw new Error(`Booking not found: ${bookingId}`);
+                }
+                
+                if (existingBooking.driverId === driverId) {
+                    // Same driver retrying — return existing booking (idempotent)
+                    console.log(`[confirmBooking] Driver ${driverId} already accepted booking ${bookingId} (idempotent retry)`);
+                    return existingBooking;
+                }
+                
+                // Another driver already accepted this booking
+                throw new Error('Chuyến đi này đã được tài xế khác nhận. Vui lòng chờ chuyến mới! (Ride already accepted by another driver)');
             }
 
             // Fetch driver vehicle info if available

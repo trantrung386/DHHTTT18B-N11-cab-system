@@ -248,18 +248,23 @@ async function createRealtimeServer() {
 		});
 
 		// Direct socket event: driver accepts a booking
-		// This provides instant notification to the customer without waiting for RabbitMQ round-trip
+		// The HTTP API (booking-service) handles atomic locking via findOneAndUpdate.
+		// This socket handler only relays the "matched" event to the customer
+		// and broadcasts "ride.taken" so other drivers dismiss the ride.
 		socket.on('booking:accept', (payload = {}, ack) => {
 			try {
 				const { bookingId, booking_id, rideId, driver } = payload;
-				if (!bookingId && !booking_id) {
+				const resolvedBookingId = bookingId || booking_id;
+				if (!resolvedBookingId) {
 					if (typeof ack === 'function') ack({ success: false, message: 'bookingId required' });
 					return;
 				}
 
+				const driverId = driver?.driverId || socket.user.userId;
+
 				const matchPayload = {
-					bookingId: bookingId || booking_id,
-					booking_id: booking_id || bookingId,
+					bookingId: resolvedBookingId,
+					booking_id: resolvedBookingId,
 					rideId: rideId || `ride-${Date.now()}`,
 					driver: driver || {
 						driverId: socket.user.userId,
@@ -271,8 +276,18 @@ async function createRealtimeServer() {
 					},
 				};
 
-				console.log(`[Socket] Direct booking:accept for ${bookingId || booking_id} from ${socket.user.userId}`);
+				console.log(`[Socket] Direct booking:accept for ${resolvedBookingId} from ${driverId}`);
+
+				// 1. Notify the customer that a driver has been matched
 				io.emit('ride.matched', matchPayload);
+
+				// 2. Broadcast ride.taken so OTHER drivers who still see this ride dismiss it
+				io.emit('ride.taken', {
+					bookingId: resolvedBookingId,
+					booking_id: resolvedBookingId,
+					driverId,
+					timestamp: new Date().toISOString(),
+				});
 
 				if (typeof ack === 'function') ack({ success: true });
 			} catch (error) {

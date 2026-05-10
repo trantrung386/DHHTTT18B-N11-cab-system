@@ -15,6 +15,9 @@ class MqBridge {
     this.io = io;
     this.channel = null;
     this.connection = null;
+    // Dedup: track recently confirmed bookings to avoid emitting ride.matched multiple times
+    // (booking.confirmed + ride_accepted both fire for the same booking)
+    this._confirmedBookings = new Set();
   }
 
   async connect() {
@@ -135,6 +138,7 @@ class MqBridge {
 
   /**
    * When a driver confirms (accepts) a booking → notify the CUSTOMER
+   * and dismiss other drivers who still see this ride
    */
   onBookingConfirmed(data) {
     const bookingId = data.bookingId || data.booking_id;
@@ -142,6 +146,16 @@ class MqBridge {
     const driverId = data.driverId || data.driver_id;
 
     if (!bookingId && !mongoId) return;
+
+    // Dedup: booking.confirmed and ride_accepted both arrive for the same booking
+    const dedupKey = bookingId || mongoId;
+    if (this._confirmedBookings.has(dedupKey)) {
+      console.log(`[MqBridge] Skipping duplicate confirmation for ${dedupKey}`);
+      return;
+    }
+    this._confirmedBookings.add(dedupKey);
+    // Auto-clean after 30s to prevent memory leak
+    setTimeout(() => this._confirmedBookings.delete(dedupKey), 30000);
 
     const payload = {
       bookingId,
@@ -163,6 +177,15 @@ class MqBridge {
 
     console.log(`[MqBridge] Broadcasting ride.matched for booking ${bookingId} (mongo: ${mongoId})`);
     this.io.emit('ride.matched', payload);
+
+    // Broadcast ride.taken so other drivers dismiss this ride from their screen
+    console.log(`[MqBridge] Broadcasting ride.taken for booking ${bookingId} (driver: ${driverId})`);
+    this.io.emit('ride.taken', {
+      bookingId: bookingId || mongoId,
+      booking_id: mongoId || bookingId,
+      driverId,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   /**

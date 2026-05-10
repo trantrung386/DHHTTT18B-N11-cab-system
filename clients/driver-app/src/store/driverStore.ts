@@ -26,11 +26,13 @@ interface DriverState {
   status: DriverStatus;
   rideStatus: RideStatus;
   activeRide: RideData | null;
+  rideRoutePath: [number, number][];  // Cached pickup→dropoff route for the active ride
   
   // Actions
   toggleOnline: () => void;
   setCurrentLocation: (lat: number, lng: number) => void;
   setIncomingRide: (ride: RideData) => void;
+  setRideRoutePath: (path: [number, number][]) => void;
   acceptRide: () => void;
   declineRide: () => void;
   markAsPickedUp: () => void;
@@ -44,6 +46,7 @@ export const useDriverStore = create<DriverState>((set) => ({
   status: 'OFFLINE',
   rideStatus: 'IDLE',
   activeRide: null,
+  rideRoutePath: [],
   
   toggleOnline: () => set((state) => {
     const newStatus = !state.isOnline;
@@ -52,15 +55,17 @@ export const useDriverStore = create<DriverState>((set) => ({
   
   setCurrentLocation: (lat, lng) => set({ currentLocation: { lat, lng } }),
   
-  setIncomingRide: (ride) => set({ activeRide: ride, rideStatus: 'INCOMING' }),
+  setIncomingRide: (ride) => set({ activeRide: ride, rideStatus: 'INCOMING', rideRoutePath: [] }),
+  
+  setRideRoutePath: (path) => set({ rideRoutePath: path }),
   
   acceptRide: () => set({ rideStatus: 'PICKING_UP' }),
   
-  declineRide: () => set({ activeRide: null, rideStatus: 'IDLE' }),
+  declineRide: () => set({ activeRide: null, rideStatus: 'IDLE', rideRoutePath: [] }),
   
   markAsPickedUp: () => set({ rideStatus: 'IN_PROGRESS' }),
   
   completeRide: () => set({ rideStatus: 'COMPLETED' }),
   
-  resetRide: () => set({ activeRide: null, rideStatus: 'IDLE' })
+  resetRide: () => set({ activeRide: null, rideStatus: 'IDLE', rideRoutePath: [] })
 }));

@@ -164,20 +164,57 @@ class RideService {
   // Assign driver to ride
   async assignDriverToRide(rideId, driverData) {
     try {
-      const ride = await Ride.findOne({ rideId });
-      if (!ride) {
-        throw new Error('Ride not found');
-      }
+      // Use atomic findOneAndUpdate to prevent race conditions when multiple drivers accept
+      const ride = await Ride.findOneAndUpdate(
+        { 
+          rideId, 
+          // Only allow assignment if it's currently requested or searching
+          status: { $in: [RIDE_STATES.REQUESTED, RIDE_STATES.SEARCHING_DRIVER] },
+          $or: [
+            { driverId: { $exists: false } },
+            { driverId: null }
+          ]
+        },
+        {
+          $set: {
+            driverId: driverData.driverId,
+            driverDetails: {
+              firstName: driverData.firstName,
+              lastName: driverData.lastName,
+              phone: driverData.phone,
+              email: driverData.email,
+              vehicle: driverData.vehicle
+            },
+            status: RIDE_STATES.DRIVER_ASSIGNED,
+            'timing.driverAssignedAt': new Date()
+          },
+          $push: {
+            auditLog: {
+              action: 'status_change',
+              actor: 'system',
+              details: { from: RIDE_STATES.SEARCHING_DRIVER, to: RIDE_STATES.DRIVER_ASSIGNED },
+              timestamp: new Date()
+            }
+          }
+        },
+        { new: true } // Return the updated document
+      );
 
-      // Update ride with driver information
-      ride.driverId = driverData.driverId;
-      ride.driverDetails = {
-        firstName: driverData.firstName,
-        lastName: driverData.lastName,
-        phone: driverData.phone,
-        email: driverData.email,
-        vehicle: driverData.vehicle
-      };
+      if (!ride) {
+        // If not found, it might either not exist OR it's already accepted by someone else
+        const existingRide = await Ride.findOne({ rideId });
+        
+        if (!existingRide) {
+          throw new Error('Ride not found');
+        }
+        
+        if (existingRide.driverId === driverData.driverId) {
+          // This driver already accepted it (possibly a retry/duplicate request)
+          console.log(`Driver ${driverData.driverId} already assigned to ride ${rideId}`);
+        } else {
+          throw new Error('Chuyến đi này đã được tài xế khác nhận (Ride is no longer available)');
+        }
+      }
 
       // Get state machine
       const stateMachine = this.activeRides.get(rideId);
@@ -186,8 +223,8 @@ class RideService {
         stateMachine.send(RIDE_EVENTS.ASSIGN_DRIVER, { driverId: driverData.driverId });
       }
 
-      // Update ride status
-      await ride.updateStatus(RIDE_STATES.DRIVER_ASSIGNED, 'system');
+      // We handle existingRide fallback above, so we only publish if 'ride' exists or it's a retry
+      const assignedRide = ride || await Ride.findOne({ rideId });
 
       // Publish driver assigned event
       if (this.rabbitMQClient) {
@@ -197,10 +234,10 @@ class RideService {
           {
             type: EVENT_TYPES.RIDE_ASSIGNED,
             rideId,
-            userId: ride.userId,
+            userId: assignedRide.userId,
             driverId: driverData.driverId,
-            driverDetails: ride.driverDetails,
-            pickup: ride.pickup,
+            driverDetails: assignedRide.driverDetails,
+            pickup: assignedRide.pickup,
             timestamp: new Date().toISOString()
           }
         );

@@ -73,6 +73,8 @@ const PickupScreen = () => {
       ).then(path => {
         console.log('[PickupScreen] Route loaded:', path.length, 'points');
         setRoutePath(path);
+      }).catch(err => {
+        console.warn('[PickupScreen] Route fetch failed:', err);
       });
     }
     

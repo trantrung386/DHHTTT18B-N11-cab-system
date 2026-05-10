@@ -333,26 +333,26 @@ const KycScreen = () => {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Số GPLX</label>
-                <input type="text" name="licenseNumber" value={vehicleInfo.licenseNumber} onChange={handleInputChange} placeholder="VD: 790123456789" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
+                <input type="text" name="licenseNumber" value={vehicleInfo.licenseNumber} onChange={handleInputChange} placeholder="VD: 790123456789" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Hãng xe</label>
-                  <input type="text" name="make" value={vehicleInfo.make} onChange={handleInputChange} placeholder="VD: Toyota" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
+                  <input type="text" name="make" value={vehicleInfo.make} onChange={handleInputChange} placeholder="VD: Toyota" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
                 </div>
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Dòng xe</label>
-                  <input type="text" name="model" value={vehicleInfo.model} onChange={handleInputChange} placeholder="VD: Vios" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
+                  <input type="text" name="model" value={vehicleInfo.model} onChange={handleInputChange} placeholder="VD: Vios" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
                 </div>
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Biển số xe</label>
-                  <input type="text" name="licensePlate" value={vehicleInfo.licensePlate} onChange={handleInputChange} placeholder="VD: 51F-123.45" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all font-bold uppercase" />
+                  <input type="text" name="licensePlate" value={vehicleInfo.licensePlate} onChange={handleInputChange} placeholder="VD: 51F-123.45" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all font-bold uppercase" />
                 </div>
                 <div className="w-1/3">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Màu sắc</label>
-                  <input type="text" name="color" value={vehicleInfo.color} onChange={handleInputChange} placeholder="VD: Trắng" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
+                  <input type="text" name="color" value={vehicleInfo.color} onChange={handleInputChange} placeholder="VD: Trắng" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all" />
                 </div>
               </div>
             </div>

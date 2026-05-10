@@ -31,14 +31,14 @@ router.post('/upload', upload.single('file'), controller.upload);
 /* LIST files by userId */
 router.get('/files/:userId', controller.listFiles);
 
-/* DOWNLOAD — wildcard to capture fileKey with slashes */
-router.get('/download/*', controller.download);
+/* DOWNLOAD — fileKey via query param: GET /download?key=category/userId/file.jpg */
+router.get('/download', controller.download);
 
-/* PRESIGNED URL — wildcard to capture fileKey with slashes */
-router.get('/presigned/*', controller.presignedUrl);
+/* PRESIGNED URL — fileKey via query param: GET /presigned?key=category/userId/file.jpg */
+router.get('/presigned', controller.presignedUrl);
 
-/* DELETE — wildcard to capture fileKey with slashes */
-router.delete('/files/*', controller.deleteFile);
+/* DELETE — fileKey via query param: DELETE /delete?key=category/userId/file.jpg */
+router.delete('/delete', controller.deleteFile);
 
 // Multer error handler
 router.use((err, req, res, next) => {

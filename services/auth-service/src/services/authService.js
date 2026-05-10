@@ -118,11 +118,11 @@ class AuthService {
                 await this.rabbitMQClient.publishEvent(
                     EXCHANGES.BOOKING_EVENTS,
                     'user.registered', {
-                        type: 'UserRegistered',
-                        userId: newUser.id,
-                        email: newUser.email,
-                        role: newUser.role
-                    }
+                    type: 'UserRegistered',
+                    userId: newUser.id,
+                    email: newUser.email,
+                    role: newUser.role
+                }
                 );
             }
 
@@ -201,13 +201,13 @@ class AuthService {
                 await this.rabbitMQClient.publishEvent(
                     EXCHANGES.BOOKING_EVENTS,
                     'user.logged_in', {
-                        type: 'UserLoggedIn',
-                        userId: user.id,
-                        email: user.email,
-                        role: user.role,
-                        ipAddress: deviceInfo.ip,
-                        userAgent: deviceInfo.userAgent
-                    }
+                    type: 'UserLoggedIn',
+                    userId: user.id,
+                    email: user.email,
+                    role: user.role,
+                    ipAddress: deviceInfo.ip,
+                    userAgent: deviceInfo.userAgent
+                }
                 );
             }
 
@@ -283,10 +283,10 @@ class AuthService {
                 await this.rabbitMQClient.publishEvent(
                     EXCHANGES.BOOKING_EVENTS,
                     'user.logged_out', {
-                        type: 'UserLoggedOut',
-                        userId,
-                        timestamp: new Date().toISOString()
-                    }
+                    type: 'UserLoggedOut',
+                    userId,
+                    timestamp: new Date().toISOString()
+                }
                 );
             }
 
@@ -321,10 +321,10 @@ class AuthService {
                 await this.rabbitMQClient.publishEvent(
                     EXCHANGES.BOOKING_EVENTS,
                     'user.email_verified', {
-                        type: 'UserEmailVerified',
-                        userId: user.id,
-                        email: user.email
-                    }
+                    type: 'UserEmailVerified',
+                    userId: user.id,
+                    email: user.email
+                }
                 );
             }
 
@@ -380,10 +380,10 @@ class AuthService {
                 await this.rabbitMQClient.publishEvent(
                     EXCHANGES.BOOKING_EVENTS,
                     'user.password_changed', {
-                        type: 'UserPasswordChanged',
-                        userId: user.id,
-                        email: user.email
-                    }
+                    type: 'UserPasswordChanged',
+                    userId: user.id,
+                    email: user.email
+                }
                 );
             }
 

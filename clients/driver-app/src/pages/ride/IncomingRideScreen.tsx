@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Polyline } from 'react-leaflet';
 import L from 'leaflet';
@@ -19,13 +19,36 @@ const createDotIcon = (color: string) => L.divIcon({
 
 const IncomingRideScreen = () => {
   const navigate = useNavigate();
-  const { activeRide, rideStatus, currentLocation, acceptRide, declineRide } = useDriverStore();
+  const { activeRide, rideStatus, currentLocation, acceptRide, declineRide, setRideRoutePath } = useDriverStore();
   const { user } = useAuth();
   const { socket } = useSocket();
   const [timeLeft, setTimeLeft] = useState(15);
   const [isProcessing, setIsProcessing] = useState(false);
   const [routePath, setRoutePath] = useState<[number, number][]>([]);
   const fetchedForRideId = useRef<string | null>(null);
+  const [rideTaken, setRideTaken] = useState(false);
+
+  // Listen for ride.taken event — another driver accepted this ride first
+  const handleRideTaken = useCallback((data: any) => {
+    const takenBookingId = data?.bookingId || data?.booking_id;
+    if (activeRide && takenBookingId === activeRide.id) {
+      console.log('[IncomingRide] Ride taken by another driver:', data.driverId);
+      setRideTaken(true);
+      showToast.error('Chuyến đi đã được tài xế khác nhận trước!');
+      setTimeout(() => {
+        declineRide();
+        navigate('/driver/home');
+      }, 1500);
+    }
+  }, [activeRide, declineRide, navigate]);
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.on('ride.taken', handleRideTaken);
+    return () => {
+      socket.off('ride.taken', handleRideTaken);
+    };
+  }, [socket, handleRideTaken]);
 
   useEffect(() => {
     if (rideStatus === 'IDLE' || !activeRide) {
@@ -40,7 +63,17 @@ const IncomingRideScreen = () => {
       routeService.getRoutePath(
         { lat: activeRide.pickup.lat, lng: activeRide.pickup.lng },
         { lat: activeRide.dropoff.lat, lng: activeRide.dropoff.lng }
-      ).then(path => setRoutePath(path));
+      ).then(path => {
+        setRoutePath(path);
+        // Save route to global store so TripInProgressScreen can reuse it
+        // without needing to re-fetch from OSRM (avoids rate limiting)
+        if (path.length > 2) {
+          setRideRoutePath(path);
+          console.log('[IncomingRide] Route saved to store:', path.length, 'points');
+        }
+      }).catch(err => {
+        console.warn('[IncomingRide] Route fetch failed:', err);
+      });
     }
 
     // Countdown Timer
@@ -59,7 +92,7 @@ const IncomingRideScreen = () => {
   }, [rideStatus, activeRide, navigate]);
 
   const handleAccept = async () => {
-    if (!activeRide) return;
+    if (!activeRide || rideTaken) return;
     setIsProcessing(true);
     try {
       const driverData = {
@@ -70,10 +103,11 @@ const IncomingRideScreen = () => {
         driverLocation: currentLocation || null,
       };
 
-      // 1. Call HTTP API to confirm the booking
+      // 1. Call HTTP API to confirm the booking (atomic — only 1 driver can succeed)
       const res = await driverApiService.acceptRide(activeRide.id, driverData);
 
-      // 2. Also emit socket event for instant notification (doesn't wait for RabbitMQ)
+      // 2. ONLY emit socket after HTTP confirm succeeds — prevents race condition
+      //    where both drivers send ride.matched to the customer
       if (socket) {
         socket.emit('booking:accept', {
           bookingId: activeRide.id,
@@ -96,9 +130,17 @@ const IncomingRideScreen = () => {
 
       acceptRide(); // change state to PICKING_UP
       navigate('/driver/pickup');
-    } catch (error) {
+    } catch (error: any) {
       console.error('[IncomingRide] Accept error:', error);
-      showToast.error('Lỗi khi nhận chuyến');
+      
+      // Check if ride was already taken by another driver (race condition)
+      const errMsg = error?.response?.data?.error || error?.message || '';
+      if (errMsg.includes('đã được tài xế khác') || errMsg.includes('already accepted') || errMsg.includes('no longer available')) {
+        showToast.error('Chuyến đi đã được tài xế khác nhận trước. Hãy chờ chuyến mới!');
+      } else {
+        showToast.error('Lỗi khi nhận chuyến. Vui lòng thử lại.');
+      }
+      
       declineRide();
       navigate('/driver/home');
     } finally {
@@ -122,6 +164,7 @@ const IncomingRideScreen = () => {
   };
 
   if (!activeRide) return null;
+  if (rideTaken) return null;
 
   return (
     <div className="h-screen w-full relative flex flex-col items-center justify-end p-4 overflow-hidden bg-slate-900 z-[1000]">
